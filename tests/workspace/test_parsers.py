@@ -239,3 +239,97 @@ class TestPandocParser:
             result = parser.parse(docx)
 
         assert result is None
+
+
+class TestCompositeParser:
+    def _make_stub_parser(self, name: str, suffixes: frozenset[str], output: str):
+        """Create a concrete FileParser stub for testing."""
+        from workspace.parsers import FileParser
+
+        class StubParser(FileParser):
+            def supported_suffixes(self) -> frozenset[str]:
+                return suffixes
+
+            def _convert(self, path):
+                return output
+
+        StubParser.name = name
+        return StubParser()
+
+    def test_routes_to_correct_parser(self, tmp_path):
+        from workspace.parsers import CompositeParser
+
+        pdf_parser = self._make_stub_parser("pdf_backend", frozenset({".pdf"}), "# From PDF")
+        docx_parser = self._make_stub_parser("docx_backend", frozenset({".docx"}), "# From DOCX")
+
+        composite = CompositeParser({".pdf": pdf_parser, ".docx": docx_parser})
+
+        pdf = tmp_path / "test.pdf"
+        pdf.write_bytes(b"fake")
+        assert composite.parse(pdf) == "# From PDF"
+
+        docx = tmp_path / "test.docx"
+        docx.write_bytes(b"fake")
+        assert composite.parse(docx) == "# From DOCX"
+
+    def test_returns_none_for_unknown_suffix(self, tmp_path):
+        from workspace.parsers import CompositeParser
+
+        composite = CompositeParser({})
+        txt = tmp_path / "test.txt"
+        txt.write_text("hello")
+        assert composite.parse(txt) is None
+
+    def test_can_parse(self):
+        from workspace.parsers import CompositeParser
+
+        stub = self._make_stub_parser("stub", frozenset({".pdf"}), "content")
+        composite = CompositeParser({".pdf": stub})
+
+        assert composite.can_parse(".pdf") is True
+        assert composite.can_parse(".docx") is False
+        assert composite.can_parse(".txt") is False
+
+
+class TestBuildParser:
+    def test_default_config_routes_all_parseable_suffixes(self, mock_markitdown):
+        from workspace.config import ParsingConfig
+        from workspace.parsers import build_parser
+
+        composite = build_parser(ParsingConfig())
+        assert composite.can_parse(".pdf")
+        assert composite.can_parse(".docx")
+        assert composite.can_parse(".pptx")
+        assert not composite.can_parse(".txt")
+
+    def test_override_routes_extension_to_different_backend(self, mock_markitdown):
+        from workspace.config import ParsingConfig
+        from workspace.parsers import build_parser
+
+        cfg = ParsingConfig(overrides={".docx": "pandoc"})
+        composite = build_parser(cfg)
+
+        # .docx should be routed to pandoc, not markitdown
+        assert composite._routing[".docx"].name == "pandoc"
+        assert composite._routing[".pdf"].name == "markitdown"
+
+    def test_unknown_backend_name_skips_extension(self, mock_markitdown):
+        from workspace.config import ParsingConfig
+        from workspace.parsers import build_parser
+
+        cfg = ParsingConfig(overrides={".pdf": "nonexistent_backend"})
+        composite = build_parser(cfg)
+
+        assert not composite.can_parse(".pdf")
+        assert composite.can_parse(".docx")
+
+    def test_pandoc_as_default(self, mock_markitdown):
+        from workspace.config import ParsingConfig
+        from workspace.parsers import build_parser
+
+        cfg = ParsingConfig(default="pandoc")
+        composite = build_parser(cfg)
+
+        assert composite._routing[".pdf"].name == "pandoc"
+        assert composite._routing[".docx"].name == "pandoc"
+        assert composite._routing[".pptx"].name == "pandoc"
