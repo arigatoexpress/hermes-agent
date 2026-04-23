@@ -689,7 +689,7 @@ Delete the contents (or this file) to use the default personality.
     $pythonExe = "$InstallDir\venv\Scripts\python.exe"
     if (Test-Path $pythonExe) {
         try {
-            & $pythonExe "$InstallDir\tools\skills_sync.py" 2>$null
+            & "$InstallDir\venv\Scripts\hermes-skills-sync.exe" 2>$null
             Write-Success "Skills synced to ~/.hermes/skills/"
         } catch {
             # Fallback: simple directory copy

@@ -294,7 +294,7 @@ def is_windows() -> bool:
 
 def run_gateway():
     """Run the gateway in foreground."""
-    from gateway.run import start_gateway
+    from hermes_agent.gateway.run import start_gateway
     print("Starting Hermes Gateway...")
     print("Press Ctrl+C to stop.")
     print()

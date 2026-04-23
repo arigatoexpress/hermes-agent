@@ -631,8 +631,8 @@ def _plugin_exists(name: str) -> bool:
                 return True
     # Bundled: <repo>/plugins/<name>/
     from pathlib import Path as _P
-    import hermes_agent.cli
-    repo_plugins = _P(hermes_cli.__file__).resolve().parent.parent / "plugins"
+    import hermes_agent.cli as _cli_pkg
+    repo_plugins = _P(_cli_pkg.__file__).resolve().parent.parent / "plugins"
     if repo_plugins.is_dir():
         candidate = repo_plugins / name
         if candidate.is_dir() and (
@@ -659,8 +659,8 @@ def _discover_all_plugins() -> list:
     seen: dict = {}  # name -> (name, version, description, source, path)
 
     # Bundled (<repo>/plugins/<name>/), excluding memory/ and context_engine/
-    import hermes_agent.cli
-    repo_plugins = Path(hermes_cli.__file__).resolve().parent.parent / "plugins"
+    import hermes_agent.cli as _cli_pkg
+    repo_plugins = Path(_cli_pkg.__file__).resolve().parent.parent / "plugins"
     for base, source in ((repo_plugins, "bundled"), (_plugins_dir(), "user")):
         if not base.is_dir():
             continue
