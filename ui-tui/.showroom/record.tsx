@@ -245,6 +245,9 @@ const subagentTrail = async () => {
 }
 
 const slashCommands = async () => {
+  const slashEcho = (text: string) => snap(<Msg kind="slash" role="user" text={text} />)
+
+  const skillsEcho = await slashEcho('/skills search vibe')
   const skillsResults = await snap(
     <Panel
       sections={[
@@ -257,11 +260,12 @@ const slashCommands = async () => {
         }
       ]}
       t={t}
-      title="/skills search vibe"
+      title="skills · search vibe"
     />,
     180
   )
 
+  const modelEcho = await slashEcho('/model claude-4.6-sonnet')
   const modelSwitch = await snap(
     <Panel
       sections={[
@@ -279,6 +283,7 @@ const slashCommands = async () => {
     180
   )
 
+  const agentsEcho = await slashEcho('/agents pause')
   const agentsStatus = await snap(
     <Panel
       sections={[
@@ -291,47 +296,68 @@ const slashCommands = async () => {
         }
       ]}
       t={t}
-      title="/agents · paused"
+      title="agents · paused"
     />,
     180
   )
 
+  const helpEcho = await slashEcho('/help')
+  const helpPanel = await snap(
+    <Panel
+      sections={[
+        { items: ['/skills    search · install · inspect', '/model     switch model · pop picker'], title: 'Tools & Skills' },
+        { items: ['/agents    spawn-tree dashboard', '/queue     queue prompt for next turn', '/steer     inject after next tool call'], title: 'Session' },
+        { items: ['/voice     toggle voice mode', '/details   thinking · tools · subagents · activity'], title: 'Configuration' }
+      ]}
+      t={t}
+      title="(^_^)? Commands"
+    />,
+    220
+  )
+
   return {
-    composer: 'press / to open the palette',
+    composer: '',
     timeline: [
-      { at: 200, duration: 500, text: '/skills search vibe', type: 'compose' },
-      { ansi: skillsResults, at: 800, id: 'skills', type: 'frame' },
-      { at: 1100, duration: 1500, target: 'skills', type: 'spotlight' },
+      { at: 200, duration: 700, text: '/skills search vibe', type: 'compose' },
+      { ansi: skillsEcho, at: 1100, type: 'frame' },
+      { at: 1100, duration: 200, text: '', type: 'compose' },
+      { ansi: skillsResults, at: 1400, id: 'skills', type: 'frame' },
       {
-        at: 1300,
-        duration: 1700,
+        at: 1700,
+        duration: 2000,
         position: 'right',
         target: 'skills',
-        text: 'Slash commands stream live results without blocking the composer.',
+        text: 'Typed /skills, hit return — same Panel the live TUI renders.',
         type: 'caption'
       },
-      { at: 3300, duration: 600, text: '/model claude-4.6-sonnet', type: 'compose' },
-      { ansi: modelSwitch, at: 4100, id: 'model', type: 'frame' },
+      { at: 4000, duration: 700, text: '/model claude-4.6-sonnet', type: 'compose' },
+      { ansi: modelEcho, at: 4900, type: 'frame' },
+      { at: 4900, duration: 200, text: '', type: 'compose' },
+      { ansi: modelSwitch, at: 5200, id: 'model', type: 'frame' },
       {
-        at: 4400,
-        duration: 1700,
+        at: 5500,
+        duration: 1900,
         position: 'right',
         target: 'model',
-        text: '/model also pops the inline picker when no arg is given.',
+        text: '/model swaps mid-session; transcript and cache stay intact.',
         type: 'caption'
       },
-      { at: 6300, duration: 600, text: '/agents pause', type: 'compose' },
-      { ansi: agentsStatus, at: 7000, id: 'agents', type: 'frame' },
-      { at: 7300, duration: 1300, target: 'agents', type: 'highlight' },
+      { at: 7600, duration: 600, text: '/agents pause', type: 'compose' },
+      { ansi: agentsEcho, at: 8400, type: 'frame' },
+      { at: 8400, duration: 200, text: '', type: 'compose' },
+      { ansi: agentsStatus, at: 8700, id: 'agents', type: 'frame' },
       {
-        at: 7500,
-        duration: 1700,
+        at: 9000,
+        duration: 1800,
         position: 'right',
         target: 'agents',
-        text: 'Same registry powers TUI, gateway, Telegram, Discord — one source of truth.',
+        text: 'Same registry powers TUI, gateway, Telegram, Discord — one truth.',
         type: 'caption'
       },
-      { at: 9300, duration: 600, text: '/resume', type: 'compose' }
+      { at: 11000, duration: 400, text: '/help', type: 'compose' },
+      { ansi: helpEcho, at: 11500, type: 'frame' },
+      { at: 11500, duration: 200, text: '', type: 'compose' },
+      { ansi: helpPanel, at: 11800, id: 'help', type: 'frame' }
     ],
     title: 'Hermes TUI · Slash Commands',
     viewport: { cols: COLS, rows: ROWS }

@@ -395,9 +395,6 @@ const setScale = next => {
   for (const button of state.shell.querySelectorAll('[data-segment="scale"] button')) {
     button.classList.toggle('is-active', Number(button.dataset.value) === next)
   }
-
-  state.shell.querySelector('[data-role="meta"]').textContent =
-    `${state.viewport.cols}x${state.viewport.rows} · ${next}x`
 }
 
 const fitScale = () => {
@@ -475,16 +472,6 @@ const renderShell = () => {
   state.shell.style.setProperty('--term-h', `${state.viewport.rows * state.viewport.lineHeight}px`)
 
   state.shell.innerHTML = `
-    <header class="showroom-title">
-      <span class="showroom-title-name">
-        <span data-role="title">${escapeHtml(state.workflow.title ?? 'Hermes TUI Showroom')}</span>
-        <span class="showroom-title-tag">${state.frameMode ? 'real ink' : 'showroom'}</span>
-      </span>
-      <span class="showroom-meta">
-        <span data-role="meta">${state.viewport.cols}x${state.viewport.rows} · ${state.scale}x</span>
-        ${catalog.length > 1 ? `<select class="showroom-picker" data-action="picker">${buildOptions()}</select>` : ''}
-      </span>
-    </header>
     <div class="showroom-stage">
       <div class="showroom-terminal">
         <div class="showroom-status" data-target="status">
@@ -496,17 +483,15 @@ const renderShell = () => {
       </div>
       <div class="showroom-overlays"></div>
     </div>
-    <div class="showroom-progress">
-      <span data-role="time">0.0s / 0.0s</span>
-      <div class="showroom-progress-track"><div class="showroom-progress-fill"></div></div>
-    </div>
     <footer class="showroom-controls">
-      <button type="button" data-action="restart">Restart</button>
-      <button type="button" data-action="clear">Clear</button>
-      <span class="showroom-segmented-label">scale</span>
+      <button type="button" data-action="restart" title="restart (R)">↻</button>
       <span class="showroom-segmented" data-segment="scale">${buildSegmented(SCALES, state.scale)}</span>
-      <span class="showroom-segmented-label">speed</span>
       <span class="showroom-segmented" data-segment="speed">${buildSegmented(SPEEDS, state.speed)}</span>
+      ${catalog.length > 1 ? `<select class="showroom-picker" data-action="picker">${buildOptions()}</select>` : ''}
+      <span class="showroom-progress">
+        <span data-role="time">0.0s / 0.0s</span>
+        <div class="showroom-progress-track"><div class="showroom-progress-fill"></div></div>
+      </span>
     </footer>
   `
 
@@ -519,10 +504,6 @@ const renderShell = () => {
   state.progressLabel = state.shell.querySelector('[data-role="time"]')
 
   state.shell.querySelector('[data-action="restart"]').addEventListener('click', play)
-  state.shell.querySelector('[data-action="clear"]').addEventListener('click', () => {
-    clearTimers()
-    clearTranscript()
-  })
 
   for (const button of state.shell.querySelectorAll('[data-segment="speed"] button')) {
     button.addEventListener('click', () => setSpeed(Number(button.dataset.value)))
@@ -574,9 +555,6 @@ const mount = () => {
 
     if (key === 'r') {
       play()
-    } else if (key === 'c') {
-      clearTimers()
-      clearTranscript()
     } else if (key === '1' || key === '2' || key === '3') {
       setSpeed(SPEEDS[Number(key) - 1])
     }

@@ -1,83 +1,121 @@
 {
-  "composer": "press / to open the palette",
+  "composer": "",
   "timeline": [
     {
       "at": 200,
-      "duration": 500,
+      "duration": 700,
       "text": "/skills search vibe",
       "type": "compose"
     },
     {
-      "ansi": "\u001b[?25l\u001b[?2026h╭──────────────────────────────────────────────────────────────────────────────╮\r\n│\u001b[78C│\r\n│\u001b[29C/skills\u001b[1Csearch\u001b[1Cvibe\u001b[30C│\r\n│\u001b[78C│\r\n│\u001b[2Canthropics/skills/frontend-design★\u001b[1Ctrusted\u001b[34C│\r\n│\u001b[2Copenai/skills/skill-creator·\u001b[1Cofficial\u001b[39C│\r\n│\u001b[2Cskills.sh/community/vibe-coding⚙\u001b[1Ccommunity\u001b[33C│\r\n│\u001b[78C│\r\n╰──────────────────────────────────────────────────────────────────────────────╯\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
-      "at": 800,
-      "id": "skills",
+      "ansi": "\u001b[?25l\u001b[?2026h\r\n❯\u001b[2C/skills\u001b[1Csearch\u001b[1Cvibe\r\n\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
+      "at": 1100,
       "type": "frame"
     },
     {
       "at": 1100,
-      "duration": 1500,
-      "target": "skills",
-      "type": "spotlight"
+      "duration": 200,
+      "text": "",
+      "type": "compose"
     },
     {
-      "at": 1300,
-      "duration": 1700,
+      "ansi": "\u001b[?25l\u001b[?2026h╭──────────────────────────────────────────────────────────────────────────────╮\r\n│\u001b[78C│\r\n│\u001b[29Cskills\u001b[1C·\u001b[1Csearch\u001b[1Cvibe\u001b[29C│\r\n│\u001b[78C│\r\n│\u001b[2Canthropics/skills/frontend-design★\u001b[1Ctrusted\u001b[34C│\r\n│\u001b[2Copenai/skills/skill-creator·\u001b[1Cofficial\u001b[39C│\r\n│\u001b[2Cskills.sh/community/vibe-coding⚙\u001b[1Ccommunity\u001b[33C│\r\n│\u001b[78C│\r\n╰──────────────────────────────────────────────────────────────────────────────╯\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
+      "at": 1400,
+      "id": "skills",
+      "type": "frame"
+    },
+    {
+      "at": 1700,
+      "duration": 2000,
       "position": "right",
       "target": "skills",
-      "text": "Slash commands stream live results without blocking the composer.",
+      "text": "Typed /skills, hit return — same Panel the live TUI renders.",
       "type": "caption"
     },
     {
-      "at": 3300,
-      "duration": 600,
+      "at": 4000,
+      "duration": 700,
       "text": "/model claude-4.6-sonnet",
       "type": "compose"
     },
     {
+      "ansi": "\u001b[?25l\u001b[?2026h\r\n❯\u001b[2C/model\u001b[1Cclaude-4.6-sonnet\r\n\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
+      "at": 4900,
+      "type": "frame"
+    },
+    {
+      "at": 4900,
+      "duration": 200,
+      "text": "",
+      "type": "compose"
+    },
+    {
       "ansi": "\u001b[?25l\u001b[?2026h╭──────────────────────────────────────────────────────────────────────────────╮\r\n│\u001b[78C│\r\n│\u001b[32Cmodel\u001b[1Cswitched\u001b[32C│\r\n│\u001b[78C│\r\n│\u001b[2Cfrom\u001b[16Cgpt-5-codex\u001b[45C│\r\n│\u001b[2Cto\u001b[18Cclaude-4.6-sonnet\u001b[39C│\r\n│\u001b[2Cscope\u001b[15Cthis\u001b[1Csession\u001b[44C│\r\n│\u001b[78C│\r\n╰──────────────────────────────────────────────────────────────────────────────╯\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
-      "at": 4100,
+      "at": 5200,
       "id": "model",
       "type": "frame"
     },
     {
-      "at": 4400,
-      "duration": 1700,
+      "at": 5500,
+      "duration": 1900,
       "position": "right",
       "target": "model",
-      "text": "/model also pops the inline picker when no arg is given.",
+      "text": "/model swaps mid-session; transcript and cache stay intact.",
       "type": "caption"
     },
     {
-      "at": 6300,
+      "at": 7600,
       "duration": 600,
       "text": "/agents pause",
       "type": "compose"
     },
     {
-      "ansi": "\u001b[?25l\u001b[?2026h╭──────────────────────────────────────────────────────────────────────────────╮\r\n│\u001b[78C│\r\n│\u001b[31C/agents\u001b[1C·\u001b[1Cpaused\u001b[31C│\r\n│\u001b[78C│\r\n│\u001b[2Cdelegation\u001b[10Cpaused\u001b[50C│\r\n│\u001b[2Cmax\u001b[1Cchildren\u001b[8C4\u001b[55C│\r\n│\u001b[2Crunning\u001b[1Ctasks\u001b[7Cqueued\u001b[1Cfor\u001b[1Cresume\u001b[39C│\r\n│\u001b[78C│\r\n╰──────────────────────────────────────────────────────────────────────────────╯\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
-      "at": 7000,
+      "ansi": "\u001b[?25l\u001b[?2026h\r\n❯\u001b[2C/agents\u001b[1Cpause\r\n\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
+      "at": 8400,
+      "type": "frame"
+    },
+    {
+      "at": 8400,
+      "duration": 200,
+      "text": "",
+      "type": "compose"
+    },
+    {
+      "ansi": "\u001b[?25l\u001b[?2026h╭──────────────────────────────────────────────────────────────────────────────╮\r\n│\u001b[78C│\r\n│\u001b[31Cagents\u001b[1C·\u001b[1Cpaused\u001b[32C│\r\n│\u001b[78C│\r\n│\u001b[2Cdelegation\u001b[10Cpaused\u001b[50C│\r\n│\u001b[2Cmax\u001b[1Cchildren\u001b[8C4\u001b[55C│\r\n│\u001b[2Crunning\u001b[1Ctasks\u001b[7Cqueued\u001b[1Cfor\u001b[1Cresume\u001b[39C│\r\n│\u001b[78C│\r\n╰──────────────────────────────────────────────────────────────────────────────╯\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
+      "at": 8700,
       "id": "agents",
       "type": "frame"
     },
     {
-      "at": 7300,
-      "duration": 1300,
-      "target": "agents",
-      "type": "highlight"
-    },
-    {
-      "at": 7500,
-      "duration": 1700,
+      "at": 9000,
+      "duration": 1800,
       "position": "right",
       "target": "agents",
-      "text": "Same registry powers TUI, gateway, Telegram, Discord — one source of truth.",
+      "text": "Same registry powers TUI, gateway, Telegram, Discord — one truth.",
       "type": "caption"
     },
     {
-      "at": 9300,
-      "duration": 600,
-      "text": "/resume",
+      "at": 11000,
+      "duration": 400,
+      "text": "/help",
       "type": "compose"
+    },
+    {
+      "ansi": "\u001b[?25l\u001b[?2026h\r\n❯\u001b[2C/help\r\n\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
+      "at": 11500,
+      "type": "frame"
+    },
+    {
+      "at": 11500,
+      "duration": 200,
+      "text": "",
+      "type": "compose"
+    },
+    {
+      "ansi": "\u001b[?25l\u001b[?2026h╭──────────────────────────────────────────────────────────────────────────────╮\r\n│\u001b[78C│\r\n│\u001b[31C(^_^)?\u001b[1CCommands\u001b[32C│\r\n│\u001b[78C│\r\n│\u001b[2CTools\u001b[1C&\u001b[1CSkills\u001b[62C│\r\n│\u001b[2C/skills\u001b[4Csearch\u001b[1C·\u001b[1Cinstall\u001b[1C·\u001b[1Cinspect\u001b[39C│\r\n│\u001b[2C/model\u001b[5Cswitch\u001b[1Cmodel\u001b[1C·\u001b[1Cpop\u001b[1Cpicker\u001b[40C│\r\n│\u001b[78C│\r\n│\u001b[2CSession\u001b[69C│\r\n│\u001b[2C/agents\u001b[4Cspawn-tree\u001b[1Cdashboard\u001b[45C│\r\n│\u001b[2C/queue\u001b[5Cqueue\u001b[1Cprompt\u001b[1Cfor\u001b[1Cnext\u001b[1Cturn\u001b[39C│\r\n│\u001b[2C/steer\u001b[5Cinject\u001b[1Cafter\u001b[1Cnext\u001b[1Ctool\u001b[1Ccall\u001b[38C│\r\n│\u001b[78C│\r\n│\u001b[2CConfiguration\u001b[63C│\r\n│\u001b[2C/voice\u001b[5Ctoggle\u001b[1Cvoice\u001b[1Cmode\u001b[48C│\r\n│\u001b[2C/details\u001b[3Cthinking\u001b[1C·\u001b[1Ctools\u001b[1C·\u001b[1Csubagents\u001b[1C·\u001b[1Cactivity\u001b[26C│\r\n│\u001b[78C│\r\n╰──────────────────────────────────────────────────────────────────────────────╯\r\n\u001b[?2026l\u001b[?2026h\u001b[?25h\u001b[?2026l\u001b[?25h",
+      "at": 11800,
+      "id": "help",
+      "type": "frame"
     }
   ],
   "title": "Hermes TUI · Slash Commands",

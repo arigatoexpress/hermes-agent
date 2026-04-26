@@ -1,59 +1,43 @@
 # TUI Showroom
 
-Cinematic demos of the real `ui-tui`. Workflows are built from actual Ink-rendered ANSI captured from `MessageLine`, `Panel`, and friends — replayed in xterm.js with timeline overlays (captions, spotlights, fades, highlights).
+Scripted demos of `ui-tui`. Workflows snapshot real ui-tui components (`MessageLine`, `Panel`, `Box`, `Text`) into ANSI and replay them through xterm.js with cinematic overlays. Recorded once, played any number of times — built for screen capture.
 
 ```bash
 npm run showroom            # dev server at http://127.0.0.1:4317
-npm run showroom:record     # re-record all workflows (regenerates JSON)
-npm run showroom:build      # builds dist/<name>.html for every workflow
+npm run showroom:record     # regenerate every workflow JSON
+npm run showroom:build      # dist/<name>.html for every workflow
 npm run showroom:type-check
 ```
 
 ## Bundled workflows
 
-| File                                   | Demonstrates                                          |
-| -------------------------------------- | ----------------------------------------------------- |
-| `workflows/feature-tour.json`          | Plan → tool trail → result highlight                  |
-| `workflows/subagent-trail.json`        | Parallel subagents, hot lanes, summary                |
-| `workflows/slash-commands.json`        | `/skills`, `/model`, `/agents` panels                 |
-| `workflows/voice-mode.json`            | VAD capture, transcript, TTS ducking                  |
+| File                                   | Shows                                                          |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `workflows/feature-tour.json`          | Plan → tool trail → result highlight                            |
+| `workflows/subagent-trail.json`        | Parallel subagents, hot lanes, summary                          |
+| `workflows/slash-commands.json`        | `/skills`, `/model`, `/agents`, `/help` typed → echoed → panel  |
+| `workflows/voice-mode.json`            | VAD capture, transcript, TTS ducking                            |
 
-Use the dropdown in the top-right or pass `?w=<name>` to deep-link a workflow.
+Pick a workflow from the dropdown or deep-link with `?w=<name>`.
 
 ## Architecture
 
 ```
 record.tsx           ─┐
-  ↳ MessageLine,      │  Ink renders → custom Writable → ANSI string
-    Panel, Box, Text  │
-                      ▼
+  ↳ MessageLine,     │  Ink renders → Writable → ANSI string
+    Panel, Box, Text │
+                     ▼
 workflows/<name>.json
-                      │  served at /api/workflow/<name>
-                      ▼
-showroom.js           │  xterm.js writes ANSI; DOM overlays target frame ids
-                      ▼
+                     │  served at /api/workflow/<name>
+                     ▼
+showroom.js          │  xterm.js writes ANSI; DOM overlays target frame ids
+                     ▼
 browser
 ```
 
-Every `frame` action embeds the ANSI bytes from a real Ink render; the browser replays them via `@xterm/xterm` (loaded from jsDelivr) so the surface is the actual TUI, not a CSS approximation. Cinematic overlays (captions, spotlights, highlights, fades) are positioned by frame `id` and rendered via DOM.
+`frame` actions embed ANSI from an Ink render; the browser feeds them into `@xterm/xterm` (jsDelivr CDN) so the surface is the actual TUI. Captions, spotlights, highlights, and fades are DOM overlays anchored to frame `id`s.
 
-## Workflow Shape
-
-```json
-{
-  "title": "Hermes TUI · Feature Tour",
-  "viewport": { "cols": 80, "rows": 16 },
-  "composer": "ask hermes anything",
-  "timeline": [
-    { "at": 200, "type": "frame", "id": "user-row", "ansi": "..." },
-    { "at": 1500, "type": "frame", "id": "assistant", "ansi": "..." },
-    { "at": 1700, "type": "spotlight", "target": "assistant" },
-    { "at": 1900, "type": "caption", "target": "assistant", "text": "..." }
-  ]
-}
-```
-
-## Timeline Actions
+## Timeline actions
 
 | Action      | Required             | Optional                                              |
 | ----------- | -------------------- | ----------------------------------------------------- |
@@ -66,19 +50,18 @@ Every `frame` action embeds the ANSI bytes from a real Ink render; the browser r
 | `fade`      | `target`             | `to` (default `0`), `duration`                        |
 | `clear`     | —                    | —                                                     |
 
-`target` references the `id` of an earlier `frame`. `viewport.scale` (default = best-fit integer) controls the upscale factor; manual buttons offer 1x–4x for capture-ready output.
+`target` references the `id` of an earlier `frame`. `viewport.scale` (or the 1x–4x picker) controls the upscale factor for capture.
 
 ## Player
 
-- Restart, Clear, 1x–4x scale, 0.5x/1x/2x speed.
-- Keyboard: `R` restart, `C` clear, `1`/`2`/`3` speed.
-- Progress bar tracks elapsed/total based on the slowest action's `at + duration`.
+- Restart (`R`), 1x–4x scale, 0.5x/1x/2x speed (`1`/`2`/`3`).
+- Progress bar reads `at + duration` from the slowest action.
 
 ## Adding a workflow
 
-1. Add a scene fn to `record.tsx` that returns a `{ title, viewport, composer, timeline }` shape.
-2. Compose Ink primitives (`Box`, `Text`) or import real ui-tui components (`MessageLine`, `Panel`).
-3. Snap each scene with `await snap(<Component />)` to capture ANSI.
-4. Run `npm run showroom:record`.
+1. Add a scene fn to `record.tsx` returning `{ title, viewport, composer, timeline }`.
+2. Compose Ink primitives or pull `MessageLine` / `Panel` from `../src`.
+3. `await snap(<Component />)` for each frame.
+4. `npm run showroom:record`.
 
-Components rendered to ANSI must be **state-free** at first paint — `useEffect` hooks usually haven't fired by the time the recorder unmounts. For accordions like the live `ToolTrail`, render an inline scene with `Box` + `Text` instead.
+Components must be state-free at first paint — `useEffect` hooks won't fire by the time the recorder unmounts. For accordions like the live `ToolTrail`, render a flat `Box` + `Text` scene instead.
