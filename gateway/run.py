@@ -307,6 +307,50 @@ from gateway.whatsapp_identity import (
 
 logger = logging.getLogger(__name__)
 
+_SAPPHIRE_CONFIRMATION_REPLY_RE = re.compile(
+    r"^\s*/?(confirm|approve|deny|reject|cancel)\s+[a-z0-9]{8}\s*$",
+    re.IGNORECASE,
+)
+
+
+def _handle_sapphire_confirmation_reply_text(text: str) -> Optional[str]:
+    """Handle bare Sapphire confirmation replies before they reach the LLM."""
+    raw = str(text or "").strip()
+    if not _SAPPHIRE_CONFIRMATION_REPLY_RE.match(raw):
+        return None
+
+    sapphire_repo = Path(
+        os.environ.get("SAPPHIRE_REPO_PATH", str(Path.home() / "Code" / "Sapphire"))
+    )
+    if not sapphire_repo.exists():
+        logger.warning(
+            "Sapphire confirmation reply ignored; repo path missing: %s",
+            sapphire_repo,
+        )
+        return "Sapphire confirmation handler is unavailable."
+
+    repo_str = str(sapphire_repo)
+    if repo_str not in sys.path:
+        sys.path.insert(0, repo_str)
+
+    try:
+        from lib.core.confirmation_firewall import handle_confirmation_reply
+
+        result = handle_confirmation_reply(raw)
+    except Exception as exc:
+        logger.warning("Sapphire confirmation reply failed: %s", exc)
+        return "Sapphire confirmation handler failed; check gateway logs."
+
+    if result is None:
+        return None
+
+    code = str(result.get("code", "")).upper()
+    action = str(result.get("action", "approve"))
+    if result.get("ok"):
+        verb = "Approved" if action == "approve" else "Denied"
+        return f"{verb} Sapphire confirmation {code}."
+    return f"No active Sapphire confirmation found for {code}."
+
 
 # Sentinel placed into _running_agents immediately when a session starts
 # processing, *before* any await.  Prevents a second message for the same
@@ -3387,6 +3431,12 @@ class GatewayRunner:
                 label = response_text if len(response_text) <= 20 else response_text[:20] + "…"
                 return f"✓ Sent `{label}` to the update process."
 
+        sapphire_confirmation_response = _handle_sapphire_confirmation_reply_text(
+            event.text or ""
+        )
+        if sapphire_confirmation_response is not None:
+            return sapphire_confirmation_response
+
         # PRIORITY handling when an agent is already running for this session.
         # Default behavior is to interrupt immediately so user text/stop messages
         # are handled with minimal latency.
@@ -4671,9 +4721,19 @@ class GatewayRunner:
                 "platform": source.platform.value if source.platform else "",
                 "user_id": source.user_id,
                 "session_id": session_entry.session_id,
-                "message": message_text[:500],
+                "message": message_text[:16000],
             }
             await self.hooks.emit("agent:start", hook_ctx)
+
+            # Relay-only bot messages are captured by hooks above, but must not
+            # receive an LLM response or they can loop indefinitely.
+            relay_ignore = {
+                item.strip()
+                for item in os.environ.get("TELEGRAM_IGNORED_USER_IDS", "").split(",")
+                if item.strip()
+            }
+            if source.user_id in relay_ignore:
+                return
 
             # Run the agent
             agent_result = await self._run_agent(
