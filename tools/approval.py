@@ -824,6 +824,150 @@ def _format_tirith_description(tirith_result: dict) -> str:
     return "Security scan — " + "; ".join(parts)
 
 
+def request_gateway_command_approval(
+    command: str,
+    description: str,
+    pattern_key: str,
+    *,
+    pattern_keys: list[str] | None = None,
+    allow_permanent: bool = True,
+    timeout_seconds: int | None = None,
+) -> dict:
+    """Request blocking gateway approval for a non-terminal command guard.
+
+    This uses the same queue consumed by the gateway's /approve and /deny
+    handlers, but lets callers provide a guard-specific reason/key after their
+    own policy check decides a command needs confirmation.
+    """
+    session_key = get_current_session_key()
+    all_keys = list(pattern_keys or [pattern_key])
+
+    if all(is_approved(session_key, key) for key in all_keys):
+        return {"approved": True, "message": None}
+
+    is_gateway = os.getenv("HERMES_GATEWAY_SESSION")
+    is_ask = os.getenv("HERMES_EXEC_ASK")
+    if not is_gateway and not is_ask:
+        return {
+            "approved": False,
+            "message": (
+                f"BLOCKED: {description}. No gateway approval channel is active."
+            ),
+            "pattern_key": pattern_key,
+            "description": description,
+        }
+
+    notify_cb = None
+    with _lock:
+        notify_cb = _gateway_notify_cbs.get(session_key)
+
+    if notify_cb is None:
+        submit_pending(session_key, {
+            "command": command,
+            "pattern_key": pattern_key,
+            "pattern_keys": all_keys,
+            "description": description,
+            "allow_permanent": allow_permanent,
+        })
+        return {
+            "approved": False,
+            "pattern_key": pattern_key,
+            "status": "approval_required",
+            "command": command,
+            "description": description,
+            "message": (
+                f"⚠️ {description}. Asking the user for approval.\n\n"
+                f"**Command:**\n```\n{command}\n```"
+            ),
+        }
+
+    approval_data = {
+        "command": command,
+        "pattern_key": pattern_key,
+        "pattern_keys": all_keys,
+        "description": description,
+        "allow_permanent": allow_permanent,
+    }
+    entry = _ApprovalEntry(approval_data)
+    with _lock:
+        _gateway_queues.setdefault(session_key, []).append(entry)
+
+    try:
+        notify_cb(approval_data)
+    except Exception as exc:
+        logger.warning("Gateway approval notify failed: %s", exc)
+        with _lock:
+            queue = _gateway_queues.get(session_key, [])
+            if entry in queue:
+                queue.remove(entry)
+            if not queue:
+                _gateway_queues.pop(session_key, None)
+        return {
+            "approved": False,
+            "message": "BLOCKED: Failed to send approval request to user. Do NOT retry.",
+            "pattern_key": pattern_key,
+            "description": description,
+        }
+
+    if timeout_seconds is None:
+        timeout_seconds = _get_approval_config().get("gateway_timeout", 300)
+    try:
+        timeout_seconds = int(timeout_seconds)
+    except (ValueError, TypeError):
+        timeout_seconds = 300
+
+    try:
+        from tools.environments.base import touch_activity_if_due
+    except Exception:  # pragma: no cover
+        touch_activity_if_due = None
+
+    _now = time.monotonic()
+    _deadline = _now + max(timeout_seconds, 0)
+    _activity_state = {"last_touch": _now, "start": _now}
+    resolved = False
+    while True:
+        _remaining = _deadline - time.monotonic()
+        if _remaining <= 0:
+            break
+        if entry.event.wait(timeout=min(1.0, _remaining)):
+            resolved = True
+            break
+        if touch_activity_if_due is not None:
+            touch_activity_if_due(_activity_state, "waiting for user approval")
+
+    with _lock:
+        queue = _gateway_queues.get(session_key, [])
+        if entry in queue:
+            queue.remove(entry)
+        if not queue:
+            _gateway_queues.pop(session_key, None)
+
+    choice = entry.result
+    if not resolved or choice is None or choice == "deny":
+        reason = "timed out" if not resolved else "denied by user"
+        return {
+            "approved": False,
+            "message": f"BLOCKED: Command {reason}. Do NOT retry this command.",
+            "pattern_key": pattern_key,
+            "description": description,
+        }
+
+    for key in all_keys:
+        if choice == "session" or (choice == "always" and not allow_permanent):
+            approve_session(session_key, key)
+        elif choice == "always":
+            approve_session(session_key, key)
+            approve_permanent(key)
+            save_permanent_allowlist(_permanent_approved)
+
+    return {
+        "approved": True,
+        "message": None,
+        "user_approved": True,
+        "description": description,
+    }
+
+
 def check_all_command_guards(command: str, env_type: str,
                              approval_callback=None) -> dict:
     """Run all pre-exec security checks and return a single approval decision.
