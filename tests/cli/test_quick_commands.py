@@ -1,8 +1,38 @@
 """Tests for user-defined quick commands that bypass the agent loop."""
+import asyncio
+import sys
 import subprocess
+import types
+from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
 from rich.text import Text
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _clean_quick_command_guard_state(monkeypatch):
+    monkeypatch.delenv("SAPPHIRE_REPO_PATH", raising=False)
+    sys.modules.pop("_hermes_sapphire_command_guard", None)
+    try:
+        from tools import approval as approval_mod
+        approval_mod._gateway_queues.clear()
+        approval_mod._gateway_notify_cbs.clear()
+        approval_mod._session_approved.clear()
+        approval_mod._permanent_approved.clear()
+        approval_mod._pending.clear()
+    except Exception:
+        pass
+    yield
+    sys.modules.pop("_hermes_sapphire_command_guard", None)
+    try:
+        from tools import approval as approval_mod
+        approval_mod._gateway_queues.clear()
+        approval_mod._gateway_notify_cbs.clear()
+        approval_mod._session_approved.clear()
+        approval_mod._permanent_approved.clear()
+        approval_mod._pending.clear()
+    except Exception:
+        pass
 
 
 # ── CLI tests ──────────────────────────────────────────────────────────────
@@ -133,6 +163,16 @@ class TestCLIQuickCommands:
 class TestGatewayQuickCommands:
     """Test quick command dispatch in GatewayRunner._handle_message."""
 
+    @staticmethod
+    def _stub_tirith(monkeypatch):
+        fake_tirith = types.ModuleType("tools.tirith_security")
+        fake_tirith.check_command_security = lambda _command: {
+            "action": "allow",
+            "findings": [],
+            "summary": "",
+        }
+        monkeypatch.setitem(sys.modules, "tools.tirith_security", fake_tirith)
+
     def _make_event(self, command, args=""):
         event = MagicMock()
         event.get_command.return_value = command
@@ -144,6 +184,7 @@ class TestGatewayQuickCommands:
         event.source.platform.value = "telegram"
         event.source.chat_type = "dm"
         event.source.chat_id = "123"
+        event.source.thread_id = None
         return event
 
     @pytest.mark.asyncio
@@ -158,6 +199,179 @@ class TestGatewayQuickCommands:
         event = self._make_event("limits")
         result = await runner._handle_message(event)
         assert result == "ok"
+
+    @pytest.mark.asyncio
+    async def test_exec_command_waits_for_hermes_approval_before_running(self, monkeypatch):
+        from gateway.run import GatewayRunner
+        from tools.approval import has_blocking_approval, resolve_gateway_approval
+
+        self._stub_tirith(monkeypatch)
+        runner = GatewayRunner.__new__(GatewayRunner)
+        runner.config = {
+            "quick_commands": {
+                "py": {"type": "exec", "command": "python3 -c \"print('ok')\""}
+            }
+        }
+        runner.adapters = {}
+        runner._running_agents = {}
+        runner._pending_messages = {}
+        runner._is_user_authorized = MagicMock(return_value=True)
+
+        event = self._make_event("py")
+        session_key = runner._session_key_for_source(event.source)
+
+        task = asyncio.create_task(runner._handle_message(event))
+        for _ in range(100):
+            if has_blocking_approval(session_key):
+                break
+            await asyncio.sleep(0.01)
+
+        assert has_blocking_approval(session_key) is True
+        resolve_gateway_approval(session_key, "once")
+
+        result = await asyncio.wait_for(task, timeout=5)
+        assert result == "ok"
+
+    @pytest.mark.asyncio
+    async def test_exec_command_does_not_run_when_hermes_approval_times_out(self, monkeypatch):
+        from gateway.run import GatewayRunner
+
+        self._stub_tirith(monkeypatch)
+        runner = GatewayRunner.__new__(GatewayRunner)
+        runner.config = {
+            "quick_commands": {
+                "danger": {"type": "exec", "command": "rm -rf /tmp/hermes-quick-test"}
+            }
+        }
+        runner.adapters = {}
+        runner._running_agents = {}
+        runner._pending_messages = {}
+        runner._is_user_authorized = MagicMock(return_value=True)
+
+        event = self._make_event("danger")
+        with patch("tools.approval._get_approval_config", return_value={"gateway_timeout": 0}), \
+             patch("asyncio.create_subprocess_shell", new_callable=AsyncMock) as mock_spawn:
+            result = await runner._handle_message(event)
+
+        assert "blocked" in result.lower() or "timed out" in result.lower()
+        mock_spawn.assert_not_called()
+
+    @staticmethod
+    def _write_fake_sapphire_guard(tmp_path: Path, body: str) -> Path:
+        repo = tmp_path / "Sapphire"
+        guard_dir = repo / "infra" / "sandbox"
+        guard_dir.mkdir(parents=True)
+        (guard_dir / "command_guard.py").write_text(body, encoding="utf-8")
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_sapphire_command_guard_block_prevents_exec(self, monkeypatch, tmp_path):
+        from gateway.run import GatewayRunner
+
+        self._stub_tirith(monkeypatch)
+        repo = self._write_fake_sapphire_guard(
+            tmp_path,
+            "class Result:\n"
+            "    blocked = True\n"
+            "    requires_confirmation = False\n"
+            "    action = 'block'\n"
+            "    reason = 'blocked by test policy'\n"
+            "    matched_rule = 'blocked-rule'\n"
+            "class CommandGuard:\n"
+            "    def __init__(self, component):\n"
+            "        self.component = component\n"
+            "    def check(self, command):\n"
+            "        return Result()\n",
+        )
+        monkeypatch.setenv("SAPPHIRE_REPO_PATH", str(repo))
+
+        runner = GatewayRunner.__new__(GatewayRunner)
+        runner.config = {"quick_commands": {"sg": {"type": "exec", "command": "echo nope"}}}
+        runner.adapters = {}
+        runner._running_agents = {}
+        runner._pending_messages = {}
+        runner._is_user_authorized = MagicMock(return_value=True)
+
+        with patch("asyncio.create_subprocess_shell", new_callable=AsyncMock) as mock_spawn:
+            result = await runner._handle_message(self._make_event("sg"))
+
+        assert "blocked by sapphire commandguard" in result.lower()
+        mock_spawn.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sapphire_command_guard_confirm_uses_gateway_approval(self, monkeypatch, tmp_path):
+        from gateway.run import GatewayRunner
+        from tools.approval import has_blocking_approval, resolve_gateway_approval
+
+        self._stub_tirith(monkeypatch)
+        repo = self._write_fake_sapphire_guard(
+            tmp_path,
+            "class Result:\n"
+            "    blocked = False\n"
+            "    requires_confirmation = True\n"
+            "    action = 'confirm'\n"
+            "    reason = 'needs operator check'\n"
+            "    matched_rule = 'confirm-rule'\n"
+            "class CommandGuard:\n"
+            "    def __init__(self, component):\n"
+            "        self.component = component\n"
+            "    def check(self, command):\n"
+            "        return Result()\n",
+        )
+        monkeypatch.setenv("SAPPHIRE_REPO_PATH", str(repo))
+
+        runner = GatewayRunner.__new__(GatewayRunner)
+        runner.config = {"quick_commands": {"sg": {"type": "exec", "command": "echo ok"}}}
+        runner.adapters = {}
+        runner._running_agents = {}
+        runner._pending_messages = {}
+        runner._is_user_authorized = MagicMock(return_value=True)
+
+        event = self._make_event("sg")
+        session_key = runner._session_key_for_source(event.source)
+        task = asyncio.create_task(runner._handle_message(event))
+
+        for _ in range(500):
+            if has_blocking_approval(session_key):
+                break
+            await asyncio.sleep(0.01)
+
+        assert has_blocking_approval(session_key) is True
+        resolve_gateway_approval(session_key, "once")
+
+        result = await asyncio.wait_for(task, timeout=5)
+        assert result == "ok"
+
+    @pytest.mark.asyncio
+    async def test_sapphire_guard_import_error_blocks_production_adjacent_command(
+        self, monkeypatch, tmp_path,
+    ):
+        from gateway.run import GatewayRunner
+
+        self._stub_tirith(monkeypatch)
+        repo = tmp_path / "Sapphire"
+        (repo / "infra" / "sandbox").mkdir(parents=True)
+        monkeypatch.setenv("SAPPHIRE_REPO_PATH", str(repo))
+
+        runner = GatewayRunner.__new__(GatewayRunner)
+        runner.config = {
+            "quick_commands": {
+                "svc": {
+                    "type": "exec",
+                    "command": "launchctl bootstrap gui/501 ~/Library/LaunchAgents/ai.hermes.plist",
+                }
+            }
+        }
+        runner.adapters = {}
+        runner._running_agents = {}
+        runner._pending_messages = {}
+        runner._is_user_authorized = MagicMock(return_value=True)
+
+        with patch("asyncio.create_subprocess_shell", new_callable=AsyncMock) as mock_spawn:
+            result = await runner._handle_message(self._make_event("svc"))
+
+        assert "sapphire commandguard is unavailable" in result.lower()
+        mock_spawn.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unsupported_type_returns_error(self):

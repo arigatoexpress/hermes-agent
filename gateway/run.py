@@ -15,6 +15,7 @@ Usage:
 
 import asyncio
 import dataclasses
+import importlib.util
 import json
 import logging
 import os
@@ -311,6 +312,88 @@ _SAPPHIRE_CONFIRMATION_REPLY_RE = re.compile(
     r"^\s*/?(confirm|approve|deny|reject|cancel)\s+[a-z0-9]{8}\s*$",
     re.IGNORECASE,
 )
+
+_PRODUCTION_ADJACENT_QUICK_EXEC_RE = re.compile(
+    r"""
+    \b(?:launchctl|systemctl|service|terraform|kubectl|helm|gcloud|aws|az|wrangler|vercel|netlify|flyctl|render|pm2|supervisorctl)\b
+    |\bdocker(?:\s+compose)?\s+(?:up|down|restart|stop|rm|rmi|run|exec|push|pull|build|login|tag|service|stack)\b
+    |\b(?:git\s+push|git\s+reset\s+--hard|git\s+clean\s+-[^\s]*f|gh\s+(?:workflow|release|pr\s+merge))\b
+    |\bhermes\s+(?:gateway|update)\b
+    |\b(?:deploy|production|prod|live|trading|tradingview|sapphire|telegram|sendmessage)\b
+    |api\.telegram\.org
+    |tradingview_execution_enabled|live_trading|sapphire_repo_path
+    |\b(?:tee|sed\s+-[^\s]*i|>>?|cp|mv|install)\b[^\n]*(?:\.env|config\.yaml|/etc/|launchagents|secrets?)
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _is_production_adjacent_quick_exec(command: str) -> bool:
+    """Return True for quick exec commands close to live services or secrets."""
+    normalized = " ".join(str(command or "").split()).lower()
+    return bool(_PRODUCTION_ADJACENT_QUICK_EXEC_RE.search(normalized))
+
+
+def _check_sapphire_quick_exec_command(command: str) -> dict:
+    """Apply Sapphire CommandGuard when SAPPHIRE_REPO_PATH is explicitly set."""
+    repo_raw = os.environ.get("SAPPHIRE_REPO_PATH")
+    if not repo_raw:
+        return {"approved": True, "message": None}
+
+    repo_path = Path(repo_raw).expanduser()
+    guard_path = repo_path / "infra" / "sandbox" / "command_guard.py"
+
+    try:
+        if not guard_path.is_file():
+            raise ImportError(f"missing {guard_path}")
+        spec = importlib.util.spec_from_file_location(
+            "_hermes_sapphire_command_guard",
+            guard_path,
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"could not load {guard_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["_hermes_sapphire_command_guard"] = module
+        spec.loader.exec_module(module)
+        guard = module.CommandGuard(component="hermes-agent")
+        result = guard.check(command)
+    except Exception as exc:
+        logger.warning("Sapphire CommandGuard unavailable for quick command: %s", exc)
+        if _is_production_adjacent_quick_exec(command):
+            return {
+                "approved": False,
+                "message": (
+                    "BLOCKED: Sapphire CommandGuard is unavailable for this "
+                    "production-adjacent quick command. Fix SAPPHIRE_REPO_PATH "
+                    "or CommandGuard before retrying."
+                ),
+                "sapphire_guard_error": str(exc),
+            }
+        return {"approved": True, "message": None, "sapphire_guard_unavailable": True}
+
+    action = getattr(result, "action", None)
+    action_value = getattr(action, "value", action)
+    reason = str(getattr(result, "reason", "") or "Sapphire CommandGuard policy")
+    matched_rule = str(getattr(result, "matched_rule", "") or action_value or "policy")
+
+    if getattr(result, "blocked", False) or action_value == "block":
+        return {
+            "approved": False,
+            "message": f"BLOCKED by Sapphire CommandGuard: {reason}",
+            "sapphire_guard_blocked": True,
+            "matched_rule": matched_rule,
+        }
+
+    if getattr(result, "requires_confirmation", False) or action_value == "confirm":
+        return {
+            "approved": False,
+            "status": "sapphire_confirmation_required",
+            "description": f"Sapphire CommandGuard requires confirmation: {reason}",
+            "pattern_key": f"sapphire-command-guard:{matched_rule}",
+            "matched_rule": matched_rule,
+        }
+
+    return {"approved": True, "message": None}
 
 
 def _handle_sapphire_confirmation_reply_text(text: str) -> Optional[str]:
@@ -3242,6 +3325,164 @@ class GatewayRunner:
 
         return bool(check_ids & allowed_ids)
 
+    async def _send_quick_exec_approval_prompt(
+        self,
+        event: MessageEvent,
+        session_key: str,
+        approval_data: dict,
+    ) -> None:
+        """Send a gateway approval prompt for an exec quick command."""
+        adapters = getattr(self, "adapters", {}) or {}
+        adapter = adapters.get(event.source.platform)
+        if adapter is None:
+            return
+
+        try:
+            adapter.pause_typing_for_chat(event.source.chat_id)
+        except Exception:
+            pass
+
+        command = approval_data.get("command", "")
+        description = approval_data.get("description", "dangerous command")
+
+        if getattr(type(adapter), "send_exec_approval", None) is not None:
+            try:
+                result = await adapter.send_exec_approval(
+                    chat_id=event.source.chat_id,
+                    command=command,
+                    session_key=session_key,
+                    description=description,
+                    metadata=None,
+                )
+                if getattr(result, "success", False):
+                    return
+                logger.warning(
+                    "Quick command approval buttons failed; falling back to text: %s",
+                    getattr(result, "error", None),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Quick command approval buttons failed; falling back to text: %s",
+                    exc,
+                )
+
+        cmd_preview = command[:200] + "..." if len(command) > 200 else command
+        allow_permanent = approval_data.get("allow_permanent", True)
+        if allow_permanent:
+            approval_hint = (
+                "Reply `/approve` to execute, `/approve session` to approve this "
+                "pattern for the session, `/approve always` to approve permanently, "
+                "or `/deny` to cancel."
+            )
+        else:
+            approval_hint = (
+                "Reply `/approve` to execute once, `/approve session` to approve "
+                "this pattern for the session, or `/deny` to cancel."
+            )
+        await adapter.send(
+            event.source.chat_id,
+            (
+                "⚠️ **Quick command requires approval:**\n"
+                f"```\n{cmd_preview}\n```\n"
+                f"Reason: {description}\n\n"
+                f"{approval_hint}"
+            ),
+        )
+
+    async def _check_quick_exec_command_guards(
+        self,
+        event: MessageEvent,
+        exec_cmd: str,
+    ) -> dict:
+        """Run Hermes and Sapphire guards before executing a quick command."""
+        session_key = self._session_key_for_source(event.source)
+        loop = asyncio.get_running_loop()
+
+        from tools.approval import (
+            check_all_command_guards,
+            register_gateway_notify,
+            request_gateway_command_approval,
+            reset_current_session_key,
+            set_current_session_key,
+            unregister_gateway_notify,
+        )
+
+        def notify_sync(approval_data: dict) -> None:
+            future = asyncio.run_coroutine_threadsafe(
+                self._send_quick_exec_approval_prompt(
+                    event,
+                    session_key,
+                    approval_data,
+                ),
+                loop,
+            )
+            future.result(timeout=15)
+
+        def run_checks() -> dict:
+            token = set_current_session_key(session_key)
+            old_gateway_session = os.environ.get("HERMES_GATEWAY_SESSION")
+            old_exec_ask = os.environ.get("HERMES_EXEC_ASK")
+            os.environ["HERMES_GATEWAY_SESSION"] = "1"
+            os.environ["HERMES_EXEC_ASK"] = "1"
+            try:
+                hermes_result = check_all_command_guards(exec_cmd, "local")
+                if not hermes_result.get("approved"):
+                    return hermes_result
+
+                sapphire_result = _check_sapphire_quick_exec_command(exec_cmd)
+                if sapphire_result.get("status") == "sapphire_confirmation_required":
+                    return request_gateway_command_approval(
+                        exec_cmd,
+                        sapphire_result["description"],
+                        sapphire_result["pattern_key"],
+                        pattern_keys=[sapphire_result["pattern_key"]],
+                        allow_permanent=False,
+                    )
+                return sapphire_result
+            finally:
+                if old_gateway_session is None:
+                    os.environ.pop("HERMES_GATEWAY_SESSION", None)
+                else:
+                    os.environ["HERMES_GATEWAY_SESSION"] = old_gateway_session
+                if old_exec_ask is None:
+                    os.environ.pop("HERMES_EXEC_ASK", None)
+                else:
+                    os.environ["HERMES_EXEC_ASK"] = old_exec_ask
+                reset_current_session_key(token)
+
+        register_gateway_notify(session_key, notify_sync)
+        try:
+            return await self._run_in_executor_with_context(run_checks)
+        finally:
+            unregister_gateway_notify(session_key)
+
+    async def _run_exec_quick_command(
+        self,
+        event: MessageEvent,
+        command: str,
+        exec_cmd: str,
+    ) -> str:
+        """Guard and execute a user-defined gateway exec quick command."""
+        guard_result = await self._check_quick_exec_command_guards(event, exec_cmd)
+        if not guard_result.get("approved"):
+            return guard_result.get("message") or (
+                f"Quick command '/{command}' was blocked by command guards."
+            )
+
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                exec_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            output = (stdout or stderr).decode().strip()
+            return output if output else "Command returned no output."
+        except asyncio.TimeoutError:
+            return "Quick command timed out (30s)."
+        except Exception as e:
+            return f"Quick command error: {e}"
+
     def _get_unauthorized_dm_behavior(self, platform: Optional[Platform]) -> str:
         """Return how unauthorized DMs should be handled for a platform.
 
@@ -3945,19 +4186,11 @@ class GatewayRunner:
                 if qcmd.get("type") == "exec":
                     exec_cmd = qcmd.get("command", "")
                     if exec_cmd:
-                        try:
-                            proc = await asyncio.create_subprocess_shell(
-                                exec_cmd,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE,
-                            )
-                            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-                            output = (stdout or stderr).decode().strip()
-                            return output if output else "Command returned no output."
-                        except asyncio.TimeoutError:
-                            return "Quick command timed out (30s)."
-                        except Exception as e:
-                            return f"Quick command error: {e}"
+                        return await self._run_exec_quick_command(
+                            event,
+                            command,
+                            exec_cmd,
+                        )
                     else:
                         return f"Quick command '/{command}' has no command defined."
                 elif qcmd.get("type") == "alias":

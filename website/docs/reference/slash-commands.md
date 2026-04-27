@@ -105,9 +105,17 @@ quick_commands:
   review: "Review my latest git diff and suggest improvements"
   deploy: "Run the deployment script at scripts/deploy.sh and verify the output"
   morning: "Check my calendar, unread emails, and summarize today's priorities"
+  limits:
+    type: exec
+    command: "python scripts/check_limits.py"
+  home:
+    type: alias
+    target: "/status"
 ```
 
 Then type `/review`, `/deploy`, or `/morning` in the CLI. Quick commands are resolved at dispatch time and are not shown in the built-in autocomplete/help tables.
+
+In gateway chats, `type: exec` quick commands pass through Hermes command approval before shell execution. If `SAPPHIRE_REPO_PATH` is set and Sapphire CommandGuard is importable, the `hermes-agent` Sapphire policy is applied too; production-adjacent commands fail closed when that guard cannot load.
 
 ### Alias Resolution
 
